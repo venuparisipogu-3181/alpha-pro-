@@ -10,8 +10,8 @@ from datetime import datetime
 st.set_page_config(layout="wide", page_title="Alpha Pro Trading")
 
 # Telegram Info (మీ టోకెన్స్ ఇక్కడ ఇవ్వండి)
-TOKEN = "YOUR_BOT_TOKEN"
-CHAT_ID = "YOUR_CHAT_ID"
+TOKEN = "8289933882:AAGgTyAhFHYzlKbZ_0rvH8GztqXeTB6P-yQ"
+CHAT_ID = ""2115666034"
 
 def send_alert(msg):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
