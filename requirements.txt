@@ -3,7 +3,3 @@ yfinance
 pandas
 pandas_ta
 requests
-streamlit==1.38.0
-pandas==2.2.2
-numpy==1.26.4
-requests==2.32.3
