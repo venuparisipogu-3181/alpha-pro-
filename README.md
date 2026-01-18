@@ -1,28 +1,23 @@
 # 🚀 Dual Strike Screener v2.5
 
-[![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)](https://dual-strike-screener.streamlit.app)
-[![Telegram](https://img.shields.io/badge/Telegram-0088cc?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/dualstrikealerts)
+[![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)](http://localhost:8501)
+[![Telegram](https://img.shields.io/badge/Telegram-0088cc?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/yourbot)
 [![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
-[![License:MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**AI Options Trading Dashboard** - Live Greeks + PCR + Multi-Index + Telegram Alerts
+**Live Options Greeks + PCR + AI Strike Selection + Telegram Alerts**
 
 ## ✨ Features
-- ✅ **Live Greeks** Δ/γ/IV/OI Real-time Analysis
-- ✅ **PCR Signals** 🟢CE/🔴PE/🟡WAIT Auto Detection
-- ✅ **Multi-Index** NIFTY/BANKNIFTY/FINNIFTY
-- ✅ **Streamlit Dashboard** + **Telegram Bot**
-- ✅ **Custom Strategy** Configurable Logic
+- 🟢 **Live Greeks** (Delta/Gamma/IV/OI)
+- 🟢 **PCR Signals** (CE/PE/WAIT)
+- 🟢 **Multi-Index** (NIFTY/BANKNIFTY)
+- 🟢 **Streamlit Dashboard**
+- 🟢 **Telegram Auto Alerts**
 
-## 🚀 Quick Setup (5 Minutes)
-
+## 🚀 5-Minute Setup
 ```bash
-git clone https://github.com/YOUR_USERNAME/dual-strike-screener.git
+git clone YOUR_REPO_URL
 cd dual-strike-screener
 pip install -r requirements.txt
-
-# Setup API Keys
 cp config_template.py config.py
-# Edit config.py → DhanHQ + Telegram tokens
-
+# Edit config.py → Add DhanHQ + Telegram keys
 streamlit run app.py
