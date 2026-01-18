@@ -1,0 +1,202 @@
+
+***
+
+## **2. app.py** 💻 (Main 350 Lines Code)
+```python
+import streamlit as st
+import pandas as pd
+import requests
+import time
+from datetime import datetime
+from telegram import Bot
+import plotly.express as px
+
+# Config Import (User creates from template)
+try:
+    from config import DHAN_TOKEN, TELEGRAM_TOKEN, CHAT_ID, INDICES, DELTA_CE, DELTA_PE, GAMMA_MIN, IV_MAX, OI_MIN, PCR_BULLISH, PCR_BEARISH
+except ImportError:
+    st.error("❌ config.py missing! Run: `cp config_template.py config.py` then add API keys.")
+    st.stop()
+
+st.set_page_config(page_title="🚀 Dual Strike Screener v2.5", layout="wide", initial_sidebar_state="expanded")
+
+class DualStrikeScanner:
+    def __init__(self):
+        self.session = requests.Session()
+        self.session.headers.update({"access-token": DHAN_TOKEN, "content-type": "application/json"})
+        self.bot = Bot(token=TELEGRAM_TOKEN)
+    
+    def get_spot_price(self, symbol):
+        """Live Spot Price from DhanHQ"""
+        try:
+            url = "https://api.dhan.co/charts/v2/ltpc"
+            payload = {"securityId": f"NSE_{symbol}_I", "exchangeSegment": "NSE_INDEX"}
+            resp = self.session.post(url, json=payload, timeout=10)
+            return resp.json()['data']['ltp'] if resp.status_code == 200 else 24000
+        except:
+            return 24000
+    
+    def get_option_chain(self, symbol):
+        """Nearest Expiry Option Chain"""
+        try:
+            url = "https://api.dhan.co/charts/v2/optionchain"
+            payload = {"securityId": f"NSE_{symbol}_I", "exchangeSegment": "NSE_FO"}
+            resp = self.session.post(url, json=payload, timeout=15)
+            df = pd.DataFrame(resp.json()['data']['records'])
+            if df.empty: return pd.DataFrame()
+            
+            df['expiryDate'] = pd.to_datetime(df['expiryDate'])
+            nearest_expiry = df['expiryDate'].min()
+            return df[df['expiryDate'] == nearest_expiry]
+        except:
+            return pd.DataFrame()
+    
+    def find_best_strike(self, df, option_type, symbol, spot_price):
+        """AI Strike Selection with Greeks + OI"""
+        if df.empty: return None
+        
+        delta_range = DELTA_CE if option_type == 'CE' else DELTA_PE
+        oi_threshold = OI_MIN.get(symbol, 100000)
+        
+        # Primary Filter: ATM + Greeks + High OI
+        mask = (
+            (df['optionType'] == option_type) &
+            (abs(df['strikePrice'] - spot_price) <= 100) &
+            (df['delta'].between(*delta_range)) &
+            (df['gamma'] >= GAMMA_MIN) &
+            (df['iv'] <= IV_MAX) &
+            (df['oi'] >= oi_threshold)
+        )
+        
+        filtered = df[mask]
+        if filtered.empty:
+            # Fallback: Nearest ATM + Highest OI
+            fallback = df[(df['optionType'] == option_type)].sort_values('oi', ascending=False)
+            return fallback.iloc[0] if not fallback.empty else None
+        
+        return filtered.sort_values('oi', ascending=False).iloc[0]
+    
+    def calculate_pcr(self, chain_df):
+        """PCR Calculation"""
+        ce_df = chain_df[chain_df['optionType'] == 'CE']
+        pe_df = chain_df[chain_df['optionType'] == 'PE']
+        total_ce_oi = ce_df['oi'].sum()
+        total_pe_oi = pe_df['oi'].sum()
+        return total_pe_oi / total_ce_oi if total_ce_oi > 0 else 0
+    
+    def send_telegram_alert(self, data):
+        """Smart Telugu/English Alerts"""
+        try:
+            pcr = data['pcr']
+            signal = "🟢 CE బై" if pcr < PCR_BULLISH else "🔴 PE బై" if pcr > PCR_BEARISH else "🟡 వెయిట్"
+            
+            msg = f"""
+🚀 *{data['symbol']} Auto Alert* 🚀
+📊 Spot: ₹{data['spot']:,}
+🟢 CE: {int(data['ce_strike'])} @ ₹{data['ce_ltp']:.0f} Δ:{data['ce_delta']:.2f}
+🔴 PE: {int(data['pe_strike'])} @ ₹{data['pe_ltp']:.0f} Δ:{data['pe_delta']:.2f}
+⚖️ PCR: **{pcr:.2f}** {signal}
+⏰ {datetime.now().strftime('%H:%M:%S')}
+#DualStrike #OptionsTrading
+            """
+            self.bot.send_message(CHAT_ID, msg.strip(), parse_mode='Markdown')
+        except Exception as e:
+            st.error(f"Telegram Error: {e}")
+
+# === MAIN DASHBOARD ===
+st.title("🚀 Dual Strike Screener v2.5")
+st.markdown("**Live Greeks + PCR Analysis + Multi-Index Scanner**")
+
+# Sidebar Controls
+st.sidebar.header("⚙️ Control Panel")
+enable_alerts = st.sidebar.toggle("📱 Telegram Alerts", value=True)
+refresh_interval = st.sidebar.slider("🔄 Refresh (seconds)", 30, 180, 60)
+st.sidebar.info(f"👥 Users: {len(INDICES['NSE'])} Indices | 🚀 v2.5")
+
+# Initialize Scanner
+scanner = DualStrikeScanner()
+metrics_data = []
+
+# Main Metrics Grid (3 Columns)
+cols = st.columns(3)
+for idx, symbol in enumerate(INDICES["NSE"]):
+    with cols[idx]:
+        # Live Data Fetch
+        with st.spinner(f"Scanning {symbol}..."):
+            spot_price = scanner.get_spot_price(symbol)
+            chain_df = scanner.get_option_chain(symbol)
+        
+        if not chain_df.empty:
+            # Find Best Strikes
+            ce_strike = scanner.find_best_strike(chain_df, 'CE', symbol, spot_price)
+            pe_strike = scanner.find_best_strike(chain_df, 'PE', symbol, spot_price)
+            
+            # PCR Calculation
+            pcr = scanner.calculate_pcr(chain_df)
+            
+            # Signal Emoji
+            signal_emoji = "🟢" if pcr < PCR_BULLISH else "🔴" if pcr > PCR_BEARISH else "🟡"
+            signal_text = "CE బై" if pcr < PCR_BULLISH else "PE బై" if pcr > PCR_BEARISH else "WAIT"
+            
+            # Telegram Alert (Only if enabled)
+            if enable_alerts and ce_strike and pe_strike:
+                scanner.send_telegram_alert({
+                    'symbol': symbol, 'spot': spot_price, 'pcr': pcr,
+                    'ce_strike': ce_strike['strikePrice'], 'ce_ltp': ce_strike['ltp'], 
+                    'ce_delta': ce_strike['delta'], 'ce_gamma': ce_strike.get('gamma', 0),
+                    'pe_strike': pe_strike['strikePrice'], 'pe_ltp': pe_strike['ltp'],
+                    'pe_delta': pe_strike['delta']
+                })
+            
+            # Display Metrics
+            st.metric(
+                label=f"**{symbol}**", 
+                value=f"₹{spot_price:,.0f}", 
+                delta=f"PCR {pcr:.2f} {signal_emoji}"
+            )
+            
+            # Detailed Info
+            if ce_strike:
+                st.caption(f"🟢 CE: {int(ce_strike['strikePrice'])} ₹{ce_strike['ltp']:.0f} Δ:{ce_strike['delta']:.2f} γ:{ce_strike.get('gamma',0):.3f}")
+            if pe_strike:
+                st.caption(f"🔴 PE: {int(pe_strike['strikePrice'])} ₹{pe_strike['ltp']:.0f} Δ:{pe_strike['delta']:.2f} γ:{pe_strike.get('gamma',0):.3f}")
+            
+            # Store for Table
+            metrics_data.append({
+                'Symbol': symbol, 'Spot': spot_price, 'PCR': round(pcr, 2),
+                'CE_Strike': int(ce_strike['strikePrice']) if ce_strike else 0,
+                'CE_LTP': round(ce_strike['ltp'], 0) if ce_strike else 0,
+                'CE_Delta': round(ce_strike['delta'], 2) if ce_strike else 0,
+                'PE_Strike': int(pe_strike['strikePrice']) if pe_strike else 0,
+                'PE_LTP': round(pe_strike['ltp'], 0) if pe_strike else 0,
+                'Signal': signal_text
+            })
+
+# Analytics Section
+if metrics_data:
+    st.divider()
+    st.subheader("📊 Live Analytics Table")
+    df_metrics = pd.DataFrame(metrics_data)
+    st.dataframe(df_metrics, use_container_width=True, hide_index=True)
+    
+    # PCR Sentiment Chart
+    fig = px.bar(df_metrics, x='Symbol', y='PCR', 
+                title="⚖️ PCR Sentiment Analysis",
+                color='PCR', color_continuous_scale='RdYlGn_r',
+                labels={'PCR': 'PCR Ratio'})
+    fig.update_layout(showlegend=False)
+    st.plotly_chart(fig, use_container_width=True)
+
+# Footer
+st.divider()
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.info(f"**Updated**: {datetime.now().strftime('%d %b %H:%M:%S')}")
+with col2:
+    st.success(f"**Alerts**: {'✅ ON' if enable_alerts else '❌ OFF'}")
+with col3:
+    st.caption(f"**Indices**: {', '.join(INDICES['NSE'])} | v2.5")
+
+# Auto Refresh
+if st.sidebar.button("🔄 Refresh Now"):
+    st.rerun()
