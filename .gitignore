@@ -1,32 +1,5 @@
-# API Secrets - NEVER COMMIT!
 config.py
-
-# Python Cache Files
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-env/
-venv/
-.venv/
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Streamlit Cache
 .streamlit/
-*.streamlit/
-
-# IDE Files
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS Files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
+*.pyc
+env/
