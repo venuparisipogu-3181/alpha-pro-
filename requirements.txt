@@ -1,6 +1,4 @@
 streamlit
 pandas
-numpy
-plotly
 requests
-streamlit-lightweight-charts
+python-telegram-bot==13.15
