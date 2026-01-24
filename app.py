@@ -13,7 +13,7 @@ from datetime import datetime
 load_dotenv()
 
 # Dhan Setup
-dcx = dhanhq.DhanContext(os.getenv("DHAN_CLIENT_ID"), os.getenv("DHAN_ACCESS_TOKEN"))
+dcx = dhanhq.DhanContext(os.getenv("1106476940"), os.getenv("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpc3MiOiJkaGFuIiwicGFydG5lcklkIjoiIiwiZXhwIjoxNzY5MzUzODg2LCJpYXQiOjE3NjkyNjc0ODYsInRva2VuQ29uc3VtZXJUeXBlIjoiU0VMRiIsIndlYmhvb2tVcmwiOiIiLCJkaGFuQ2xpZW50SWQiOiIxMTA2NDc2OTQwIn0.41Qfw1HolyfKA8vEzVKLhFnBLZ1j-0vSSW16vWrQSJXC8ThJCdv5JVJicjKBO6QFrCZM3_HkLkSLsbB6gWxjmA"))
 
 # Telegram Setup
 async def send_alert(message):
