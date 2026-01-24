@@ -3,26 +3,7 @@ import asyncio
 import nest_asyncio
 nest_asyncio.apply()
 
-# PRO ALERT FUNCTION
-async def pro_alert(index, strike, entry, target, sl):
-    try:
-        token = os.getenv("8289933882:AAGgTyAhFHYzlKbZ_0rvH8GztqXeTB6P-yQ")
-        chat_id = os.getenv("2115666034")
-        if token and chat_id:
-            import os
-            
-           from telegram import Bot
-            bot = Bot(token=token)
-            msg = f"""🎯 PERFECT ENTRY: {index}
-
-🟢 Action: BUY {strike} CE
-📊 Reason: EMA Support + PCR 1.15
-💰 Entry: {entry}
-🎯 Target: {target}
-🛑 Stoploss: {sl}
-🔄 Trailing: 15.0 pts
-🏁 Exit: Reverse Signal or SL"""
-            await bot.send_message(chat_id=chat_id, text=msg)
+  await bot.send_message(chat_id=chat_id, text=msg)
             return True
         return False
     except:
@@ -30,6 +11,9 @@ async def pro_alert(index, strike, entry, target, sl):
 
 def run_pro_alert(index, strike, entry, target, sl):
     try:
+        def get_index_data(index_name):
+    np.random.seed(int
+
         loop = asyncio.get_event_loop()
         return loop.run_until_complete(pro_alert(index, strike, entry, target, sl))
     except:
