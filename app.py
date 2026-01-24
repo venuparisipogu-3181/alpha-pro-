@@ -4,6 +4,38 @@ import numpy as np
 from datetime import datetime
 import os
 import requests
+# DHANHQ LIVE NSE CONNECT
+import st.secrets
+from dhanhq import DhanContext, dhanhq
+
+@st.cache_data(ttl=2)  # 2s LIVE refresh
+def get_live_nifty():
+    try:
+        dhan = dhanhq(DhanContext(
+            st.secrets["DHAN_CLIENT_ID"], 
+            st.secrets["DHAN_ACCESS_TOKEN"]
+        ))
+        
+        # LIVE NIFTY Option Chain
+        chain = dhan.option_chain(
+            under_security_id=13,  # NIFTY=13
+            under_exchange_segment="IDX_I"
+        )
+        
+        data = []
+        if chain.get('data'):
+            for opt in chain['data']['CE']:
+                data.append({
+                    'Strike': opt['strikePrice'],
+                    'LTP': f"₹{opt.get('LTP', 0):.0f}",
+                    'OI': f"{opt.get('openInterest', 0):,.0f}",
+                    'Δ': f"{opt.get('delta', 0):.2f}",
+                    'IV%': f"{opt.get('impliedVolatility', 0):.0f}"
+                })
+        return pd.DataFrame(data[:9])  # Top 9 strikes
+    except:
+        st.error("❌ DhanHQ Connect Failed")
+        return pd.DataFrame()
 
 st.set_page_config(layout="wide")
 
