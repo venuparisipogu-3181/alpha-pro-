@@ -6,10 +6,11 @@ nest_asyncio.apply()
 # PRO ALERT FUNCTION
 async def pro_alert(index, strike, entry, target, sl):
     try:
-        token = os.getenv("TELEGRAM_BOT_TOKEN")
-        chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        token = os.getenv("8289933882:AAGgTyAhFHYzlKbZ_0rvH8GztqXeTB6P-yQ")
+        chat_id = os.getenv("2115666034")
         if token and chat_id:
             import os
+            
 import asyncio
 import nest_asyncio
 nest_asyncio.apply()
