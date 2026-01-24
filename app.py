@@ -30,8 +30,6 @@ def telegram_pro_alert(index, strike, entry, target, sl):
 
 st.set_page_config(layout="wide")
 
-
-        loop = asyncio.get_event_loop()
         return loop.run_until_complete(pro_alert(index, strike, entry, target, sl))
     except:
         return asyncio.run(pro_alert(index, strike, entry, target, sl))
