@@ -4,6 +4,15 @@ import nest_asyncio
 nest_asyncio.apply()
 
   await bot.send_message(chat_id=chat_id, text=msg)
+import os
+import requests
+
+def telegram_pro_alert(index, strike, entry, target, sl):
+    """NO ASYNC - Perfect working"""
+    try:
+        token = os.getenv("TELEGRAM_BOT_TOKEN")
+        chat_id =
+
             return True
         return False
     except:
