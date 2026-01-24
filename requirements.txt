@@ -1,9 +1,5 @@
 streamlit
-plotly
 pandas
 numpy
-dhanhq
-python-telegram-bot
-requests
-python-dotenv
-scipy
+python-telegram-bot==20.7
+nest-asyncio
