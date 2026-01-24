@@ -11,15 +11,7 @@ async def pro_alert(index, strike, entry, target, sl):
         if token and chat_id:
             import os
             
-import asyncio
-import nest_asyncio
-nest_asyncio.apply()
-
-async def pro_alert(index, strike, entry, target, sl):
-    try:
-        token
-
-            from telegram import Bot
+           from telegram import Bot
             bot = Bot(token=token)
             msg = f"""🎯 PERFECT ENTRY: {index}
 
