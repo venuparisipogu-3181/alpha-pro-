@@ -1,27 +1,35 @@
-import os
-import asyncio
-import nest_asyncio
-nest_asyncio.apply()
-
-  await bot.send_message(chat_id=chat_id, text=msg)
+import streamlit as st
+import pandas as pd
+import numpy as np
+from datetime import datetime
 import os
 import requests
 
+# TELEGRAM FUNCTION
 def telegram_pro_alert(index, strike, entry, target, sl):
-    """NO ASYNC - Perfect working"""
     try:
         token = os.getenv("TELEGRAM_BOT_TOKEN")
-        chat_id =
+        chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        if token and chat_id:
+            url = f"https://api.telegram.org/bot{token}/sendMessage"
+            msg = f"""🎯 PERFECT ENTRY: {index}
 
-            return True
+🟢 Action: BUY {strike} CE
+📊 Reason: EMA Support + PCR 1.15
+💰 Entry: {entry}
+🎯 Target: {target}
+🛑 Stoploss: {sl}
+🔄 Trailing: 15.0 pts
+🏁 Exit: Reverse Signal or SL"""
+            data = {"chat_id": chat_id, "text": msg}
+            response = requests.post(url, data=data)
+            return response.status_code == 200
         return False
     except:
         return False
 
-def run_pro_alert(index, strike, entry, target, sl):
-    try:
-        def get_index_data(index_name):
-    np.random.seed(int
+st.set_page_config(layout="wide")
+
 
         loop = asyncio.get_event_loop()
         return loop.run_until_complete(pro_alert(index, strike, entry, target, sl))
