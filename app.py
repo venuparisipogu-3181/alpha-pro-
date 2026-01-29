@@ -6,7 +6,7 @@ import requests
 import time
 from datetime import datetime
 
-# --- 1. PAGE SETUP & SESSION STATE ---
+# --- 1. PAGE SETUP ---
 st.set_page_config(layout="wide", page_title="PRO Dhan Live Monitor", page_icon="🎯")
 
 if 'monitor_active' not in st.session_state:
@@ -20,19 +20,16 @@ try:
     ACCESS_TOKEN = st.secrets["DHAN_ACCESS_TOKEN"]
     dhan = dhanhq(CLIENT_ID, ACCESS_TOKEN)
 except Exception as e:
-    st.error("❌ Secrets Error: Please configure DHAN_CLIENT_ID and DHAN_ACCESS_TOKEN in Streamlit Cloud.")
+    st.error("❌ Secrets Missing! Add DHAN_CLIENT_ID & DHAN_ACCESS_TOKEN in Streamlit Cloud.")
     st.stop()
 
-# --- 3. CORE FUNCTIONS ---
+# --- 3. HELPER FUNCTIONS ---
 
 @st.cache_data(ttl=86400)
 def load_dhan_master():
-    """Fetches Security IDs for tracking"""
     url = "https://images.dhan.co/api-data/api-scrip-master.csv"
-    try:
-        return pd.read_csv(url)
-    except:
-        return pd.DataFrame()
+    try: return pd.read_csv(url)
+    except: return pd.DataFrame()
 
 def get_security_id(index_name, strike, option_type):
     master_df = load_dhan_master()
@@ -52,47 +49,38 @@ def get_security_id(index_name, strike, option_type):
     return None, None
 
 def calculate_pcr(df_all):
-    """Calculates Put-Call Ratio for the index"""
     ce_oi = df_all[df_all['type'] == 'CE']['oi'].sum()
     pe_oi = df_all[df_all['type'] == 'PE']['oi'].sum()
     return round(pe_oi / ce_oi, 2) if ce_oi > 0 else 1.0
 
 def calculate_pro_score(row, pcr_val, side):
-    """Your Original PRO Scoring Logic"""
     score = 0
     oi_delta = row.get('oi_change', 0)
     iv = row.get('iv', 0)
-    
-    # OI Change Points
     if oi_delta >= 2500: score += 40
     elif oi_delta >= 1500: score += 35
     elif oi_delta >= 800: score += 30
-    
-    # IV Points
     if 16 <= iv <= 22: score += 20
     elif 14 <= iv <= 25: score += 15
-    
-    # PCR Bonus
     if side == "CALL" and pcr_val <= 0.90: score += 10
     elif side == "PUT" and pcr_val >= 1.10: score += 10
-    
     return round(score, 1)
 
 def telegram_pro_alert(title, strike, price, status, action, score):
     token = st.secrets.get("TELEGRAM_BOT_TOKEN")
     chat_id = st.secrets.get("TELEGRAM_CHAT_ID")
     if token and chat_id:
-        msg = f"🚨 {title}\n{strike}\n\n💰 LTP: ₹{price}\n🎯 Action: {action}\n📊 Status: {status}\n⭐ Score: {score}"
+        msg = f"🚨 {title}\n{strike}\n💰 LTP: ₹{price}\n🎯 Action: {action}\n📊 Score: {score}"
         try: requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={"chat_id": chat_id, "text": msg})
         except: pass
 
 # --- 4. SIDEBAR ---
-st.sidebar.title("🎯 PRO DHAN SCREENER")
+st.sidebar.title("🎯 PRO SCREENER")
 side_choice = st.sidebar.selectbox("Select Side", ["CALL", "PUT"])
 opt_type = "CE" if side_choice == "CALL" else "PE"
 
 # --- 5. 3-INDEX LIVE SCREENER ---
-st.header("🔥 PRO 3-INDEX LIVE SCREENER (DHAN)")
+st.header("🔥 PRO 3-INDEX LIVE SCREENER")
 indices = {
     "NIFTY": {"id": 13, "seg": "IDX_I"},
     "BANKNIFTY": {"id": 25, "seg": "IDX_I"},
@@ -104,92 +92,79 @@ for i, (name, config) in enumerate(indices.items()):
     with col_idx[i]:
         st.subheader(f"📈 {name}")
         try:
-            resp = dhan.option_chain(under_security_id=int(config['id']), under_exchange_segment=config['seg'])
+            # 1. Fetch Expiry Dates first
+            expiry_data = dhan.get_expiry_dates(under_security_id=int(config['id']), under_exchange_segment=config['seg'])
             
-            if resp and resp.get('status') == 'success':
-                full_df = pd.DataFrame(resp['data'])
-                pcr_val = calculate_pcr(full_df)
-                live_spot = resp.get('underlyingValue', 0)
+            if expiry_data and expiry_data.get('status') == 'success':
+                current_expiry = expiry_data['data'][0] # మొదటి ఎక్స్‌పైరీ తీసుకుంటుంది
                 
-                m1, m2 = st.columns(2)
-                m1.metric("SPOT", f"₹{live_spot:,.2f}")
-                m2.metric("PCR", f"{pcr_val}")
+                # 2. Fetch Option Chain with Expiry
+                resp = dhan.option_chain(
+                    under_security_id=int(config['id']), 
+                    under_exchange_segment=config['seg'],
+                    expiry=current_expiry
+                )
+                
+                if resp and resp.get('status') == 'success':
+                    full_df = pd.DataFrame(resp['data'])
+                    pcr_val = calculate_pcr(full_df)
+                    live_spot = resp.get('underlyingValue', 0)
+                    
+                    st.write(f"📅 Expiry: {current_expiry}")
+                    m1, m2 = st.columns(2)
+                    m1.metric("SPOT", f"₹{live_spot:,.2f}")
+                    m2.metric("PCR", f"{pcr_val}")
 
-                df = full_df[full_df['type'] == opt_type].copy()
-                if not df.empty:
-                    df['PRO_SCORE'] = df.apply(lambda x: calculate_pro_score(x, pcr_val, side_choice), axis=1)
-                    df = df.sort_values(by='PRO_SCORE', ascending=False)
-                    
-                    best = df.iloc[0]
-                    st.success(f"🎯 BEST: {best['strike_price']} [{best['PRO_SCORE']}/100]")
-                    
-                    if st.button(f"🚀 TRACK {name}", key=f"btn_{name}"):
-                        s_id, s_sym = get_security_id(name, best['strike_price'], side_choice)
-                        st.session_state.monitor_active = True
-                        st.session_state.tracked_trade = {
-                            "sec_id": s_id, "symbol": s_sym, "entry_price": best['last_price'],
-                            "target": best['last_price'] + 60, "sl": best['last_price'] - 30, 
-                            "type": opt_type, "index_id": config['id'], "strike": best['strike_price']
-                        }
-                        telegram_pro_alert(f"{name} ENTRY", s_sym, best['last_price'], "LIVE", "START MONITOR", best['PRO_SCORE'])
-                        st.rerun()
-                    
-                    st.dataframe(df[['strike_price', 'last_price', 'oi_change', 'PRO_SCORE']].head(8), use_container_width=True)
+                    df = full_df[full_df['type'] == opt_type].copy()
+                    if not df.empty:
+                        df['PRO_SCORE'] = df.apply(lambda x: calculate_pro_score(x, pcr_val, side_choice), axis=1)
+                        df = df.sort_values(by='PRO_SCORE', ascending=False)
+                        best = df.iloc[0]
+                        
+                        st.success(f"🎯 BEST: {best['strike_price']} [{best['PRO_SCORE']}/100]")
+                        
+                        if st.button(f"🚀 TRACK {name}", key=f"btn_{name}"):
+                            s_id, s_sym = get_security_id(name, best['strike_price'], side_choice)
+                            st.session_state.monitor_active = True
+                            st.session_state.tracked_trade = {
+                                "sec_id": s_id, "symbol": s_sym, "entry_price": best['last_price'],
+                                "target": best['last_price'] + 60, "sl": best['last_price'] - 30, 
+                                "type": opt_type, "index_id": config['id'], "strike": best['strike_price'], "expiry": current_expiry
+                            }
+                            telegram_pro_alert(f"{name} ENTRY", s_sym, best['last_price'], "LIVE", "START", best['PRO_SCORE'])
+                            st.rerun()
+                        
+                        st.dataframe(df[['strike_price', 'last_price', 'oi_change', 'PRO_SCORE']].head(8), use_container_width=True)
             else:
-                st.error("API Limit reached or Market Closed")
+                st.error(f"Could not fetch expiry for {name}")
         except Exception as e:
             st.error(f"Error: {e}")
 
-# --- 6. LIVE MONITOR + EXIT RULES ---
+# --- 6. LIVE MONITOR ---
 if st.session_state.monitor_active:
     st.markdown("---")
-    st.header("🔴 SINGLE STRIKE LIVE MONITOR")
-    trade = st.session_state.tracked_trade
-    
+    st.header("🔴 LIVE TRACKING")
+    t = st.session_state.tracked_trade
     try:
-        mon_resp = dhan.option_chain(under_security_id=int(trade['index_id']), under_exchange_segment="IDX_I")
+        mon_resp = dhan.option_chain(under_security_id=int(t['index_id']), under_exchange_segment="IDX_I", expiry=t['expiry'])
         if mon_resp and mon_resp.get('status') == 'success':
             m_df = pd.DataFrame(mon_resp['data'])
-            m_row = m_df[(m_df['strike_price'] == float(trade['strike'])) & (m_df['type'] == trade['type'])].iloc[0]
+            m_row = m_df[(m_df['strike_price'] == float(t['strike'])) & (m_df['type'] == t['type'])].iloc[0]
             
             cur_ltp = m_row['last_price']
-            cur_oi_chg = m_row['oi_change']
+            cur_oi = m_row['oi_change']
             
-            st.subheader(f"🚀 Tracking: {trade['symbol']} | Entry: ₹{trade['entry_price']}")
-            
+            st.subheader(f"🚀 {t['symbol']} | Entry: ₹{t['entry_price']}")
             met1, met2, met3 = st.columns(3)
-            met1.metric("LTP", f"₹{cur_ltp}", f"{cur_ltp - trade['entry_price']:+.2f}")
-            met2.metric("Target", f"₹{trade['target']}")
-            met3.metric("Stoploss", f"₹{trade['sl']}")
-            
-            # OI Alerts
-            if cur_oi_chg < -1000: st.error(f"🔴 OI COLLAPSE ({cur_oi_chg:+})")
-            elif cur_oi_chg > 2000: st.success(f"🟢 OI BUILDUP ({cur_oi_chg:+})")
+            met1.metric("LTP", f"₹{cur_ltp}", f"{cur_ltp - t['entry_price']:+.2f}")
+            met2.metric("Target", f"₹{t['target']}")
+            met3.metric("SL", f"₹{t['sl']}")
 
-            # Exit Buttons
-            e1, e2, e3 = st.columns(3)
-            with e1:
-                if st.button("🎯 TARGET HIT", disabled=(cur_ltp < trade['target']), use_container_width=True):
-                    telegram_pro_alert("TARGET REACHED", trade['symbol'], cur_ltp, "EXIT", "SELL NOW", 100)
-                    st.session_state.monitor_active = False
-                    st.rerun()
-            with e2:
-                if st.button("🛑 SL HIT", disabled=(cur_ltp > trade['sl']), use_container_width=True):
-                    telegram_pro_alert("STOPLOSS HIT", trade['symbol'], cur_ltp, "EXIT", "SELL NOW", 0)
-                    st.session_state.monitor_active = False
-                    st.rerun()
-            with e3:
-                if st.button("🚨 OI EXIT", disabled=(cur_oi_chg > -1000), use_container_width=True):
-                    telegram_pro_alert("OI EMERGENCY", trade['symbol'], cur_ltp, "EXIT", "EMERGENCY SELL", 20)
-                    st.session_state.monitor_active = False
-                    st.rerun()
-    except Exception as e:
-        st.warning("Fetching live updates...")
+            if st.button("⏹️ STOP MONITOR"):
+                st.session_state.monitor_active = False
+                st.rerun()
+    except: st.warning("Refreshing data...")
 
-    if st.button("⏹️ STOP MONITOR"):
-        st.session_state.monitor_active = False
-        st.rerun()
-
-st.info("🔄 Auto-refreshing every 15 seconds...")
+st.info("🔄 Auto-refreshing in 15s...")
 time.sleep(15)
 st.rerun()
