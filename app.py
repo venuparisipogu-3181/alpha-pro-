@@ -5,113 +5,63 @@ from dhanhq import dhanhq
 import requests
 import time
 
-# --- 1. PAGE SETUP & SESSION STATE ---
-st.set_page_config(layout="wide", page_title="PRO Dhan Live Monitor", page_icon="🏹")
+# --- 1. SETUP ---
+st.set_page_config(layout="wide", page_title="PRO Dhan Live", page_icon="🏹")
 
-if 'monitor_active' not in st.session_state:
-    st.session_state.monitor_active = False
-if 'tracked_trade' not in st.session_state:
-    st.session_state.tracked_trade = None
-
-# --- 2. API CONNECTION ---
 try:
-    CLIENT_ID = st.secrets["DHAN_CLIENT_ID"]
-    ACCESS_TOKEN = st.secrets["DHAN_ACCESS_TOKEN"]
-    dhan = dhanhq(CLIENT_ID, ACCESS_TOKEN)
+    client_id = st.secrets["DHAN_CLIENT_ID"]
+    access_token = st.secrets["DHAN_ACCESS_TOKEN"]
+    dhan = dhanhq(client_id, access_token)
 except Exception as e:
-    st.error("❌ Secrets missing! Add DHAN_CLIENT_ID & DHAN_ACCESS_TOKEN in Streamlit Cloud.")
+    st.error("❌ Secrets Error!")
     st.stop()
 
-# --- 3. LOGIC FUNCTIONS ---
+# --- 2. LOGIC ---
+def get_safe_option_chain(idx_id, idx_seg):
+    """ఎక్స్‌పైరీ ఎర్రర్ రాకుండా హ్యాండిల్ చేసే ఫంక్షన్"""
+    try:
+        # పద్ధతి 1: నేరుగా ఆప్షన్ చైన్ ట్రై చేయడం
+        resp = dhan.option_chain(under_security_id=int(idx_id), under_exchange_segment=idx_seg)
+        return resp
+    except TypeError:
+        # పద్ధతి 2: ఒకవేళ expiry అడిగితే (కొత్త SDK వెర్షన్)
+        # ఇక్కడ మనం ఏ డేట్ ఇవ్వాలో తెలియదు కాబట్టి, ప్రస్తుతానికి ఎర్రర్ మెసేజ్ చూపిస్తుంది
+        return {"status": "error", "remarks": "expiry_required"}
 
-def calculate_pcr(df_all):
-    ce_oi = df_all[df_all['type'] == 'CE']['oi'].sum()
-    pe_oi = df_all[df_all['type'] == 'PE']['oi'].sum()
-    return round(pe_oi / ce_oi, 2) if ce_oi > 0 else 1.0
-
-def calculate_pro_score(row, pcr_val, side):
-    score = 0
-    oi_delta = row.get('oi_change', 0)
-    iv = row.get('iv', 0)
-    
-    if oi_delta >= 2500: score += 40
-    elif oi_delta >= 1500: score += 35
-    
-    if 16 <= iv <= 22: score += 20
-    
-    if side == "CALL" and pcr_val <= 0.90: score += 10
-    elif side == "PUT" and pcr_val >= 1.10: score += 10
-    
-    return round(score, 1)
-
-def telegram_pro_alert(title, strike, price, status, action, score):
-    token = st.secrets.get("TELEGRAM_BOT_TOKEN")
-    chat_id = st.secrets.get("TELEGRAM_CHAT_ID")
-    if token and chat_id:
-        msg = f"🚨 {title}\n{strike}\n💰 LTP: ₹{price}\n📊 Score: {score}"
-        try: requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={"chat_id": chat_id, "text": msg})
-        except: pass
-
-# --- 4. 3-INDEX LIVE SCREENER ---
-st.header("🔥 PRO 3-INDEX LIVE MONITOR")
+# --- 3. UI SCREENER ---
+st.header("🏹 PRO 3-INDEX LIVE MONITOR")
 indices = {
     "NIFTY": {"id": 13, "seg": "IDX_I"},
     "BANKNIFTY": {"id": 25, "seg": "IDX_I"},
     "SENSEX": {"id": 1, "seg": "IDX_I"}
 }
 
-side_choice = st.sidebar.selectbox("Select Side", ["CALL", "PUT"])
-opt_type = "CE" if side_choice == "CALL" else "PE"
+side = st.sidebar.selectbox("Side", ["CALL", "PUT"])
+opt_type = "CE" if side == "CALL" else "PE"
 
-col_idx = st.columns(3)
-
-for i, (name, config) in enumerate(indices.items()):
-    with col_idx[i]:
+cols = st.columns(3)
+for i, (name, conf) in enumerate(indices.items()):
+    with cols[i]:
         st.subheader(f"📈 {name}")
+        # ఇక్కడ మనం వెర్షన్ సంబంధం లేకుండా డేటా తెచ్చే ప్రయత్నం చేస్తున్నాం
         try:
-            # ధన్ నుండి ఎక్స్‌పైరీ లిస్ట్‌ని పొందడం
-            # గమనిక: SDK వెర్షన్ బట్టి 'get_expiry_dates' లేదా 'expiry_list' మారుతుంది
-            expiry_resp = dhan.get_expiry_dates(under_security_id=int(config['id']), under_exchange_segment=config['seg'])
+            # Dhan SDK లో వెర్షన్ బట్టి ఫంక్షన్ మారుతుంది
+            # ఒకవేళ get_expiry_dates లేకపోతే నేరుగా ఆప్షన్ చైన్ వాడుతున్నాం
+            resp = dhan.option_chain(under_security_id=int(conf['id']), under_exchange_segment=conf['seg'])
             
-            if expiry_resp and expiry_resp.get('status') == 'success':
-                current_expiry = expiry_resp['data'][0]
+            if resp and resp.get('status') == 'success':
+                data = pd.DataFrame(resp['data'])
+                spot = resp.get('underlyingValue', 0)
+                st.metric("SPOT", f"₹{spot}")
                 
-                # ఎక్స్‌పైరీతో ఆప్షన్ చైన్ పిలవడం
-                resp = dhan.option_chain(
-                    under_security_id=int(config['id']), 
-                    under_exchange_segment=config['seg'],
-                    expiry=current_expiry
-                )
-                
-                if resp and resp.get('status') == 'success':
-                    full_df = pd.DataFrame(resp['data'])
-                    pcr_val = calculate_pcr(full_df)
-                    live_spot = resp.get('underlyingValue', 0)
-                    
-                    st.write(f"📅 {current_expiry}")
-                    m1, m2 = st.columns(2)
-                    m1.metric("SPOT", f"₹{live_spot:,.2f}")
-                    m2.metric("PCR", f"{pcr_val}")
-
-                    df = full_df[full_df['type'] == opt_type].copy()
-                    if not df.empty:
-                        df['PRO_SCORE'] = df.apply(lambda x: calculate_pro_score(x, pcr_val, side_choice), axis=1)
-                        df = df.sort_values(by='PRO_SCORE', ascending=False)
-                        best = df.iloc[0]
-                        
-                        st.success(f"🎯 {best['strike_price']} [{best['PRO_SCORE']}/100]")
-                        
-                        if st.button(f"🚀 TRACK {name}", key=f"btn_{name}"):
-                            telegram_pro_alert(f"{name} ENTRY", f"{name} {best['strike_price']} {opt_type}", best['last_price'], "LIVE", "START", best['PRO_SCORE'])
-                            st.toast(f"Tracking {name} Started!")
-                        
-                        st.dataframe(df[['strike_price', 'last_price', 'oi_change', 'PRO_SCORE']].head(8), use_container_width=True)
+                df_side = data[data['type'] == opt_type].copy()
+                st.dataframe(df_side[['strike_price', 'last_price', 'oi_change']].head(5))
             else:
-                st.error(f"{name}: No Expiry Data")
-        except Exception as e:
-            st.error(f"{name} Error: {e}")
+                st.warning(f"{name}: No Live Data (Market Closed?)")
+        except AttributeError:
+            st.error(f"❌ SDK Version Issue in {name}. Please update requirements.txt")
 
-# --- 5. REFRESH ---
-st.info("🔄 Auto-refreshing in 15 seconds...")
+# --- 4. REFRESH ---
+st.info("🔄 Auto-refreshing...")
 time.sleep(15)
 st.rerun()
