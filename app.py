@@ -1,201 +1,176 @@
 import streamlit as st
 import pandas as pd
 from dhanhq import dhanhq
-import requests
 from datetime import datetime, timedelta
-from streamlit_autorefresh import st_autorefresh
+import time
+import requests
 
-# ---------------- PAGE CONFIG ----------------
-st.set_page_config(
-    page_title="Alpha PRO Monitor",
-    layout="wide",
-    page_icon="🏹"
-)
+# ---------------- CONFIG ----------------
+st.set_page_config("Alpha PRO Monitor", "🏹", layout="wide")
 
-# ---------------- SESSION STATE ----------------
-if "monitor_active" not in st.session_state:
-    st.session_state.monitor_active = False
-if "tracked_trade" not in st.session_state:
-    st.session_state.tracked_trade = None
-
-# ---------------- AUTO REFRESH (NON-BLOCKING) ----------------
-st_autorefresh(interval=20000, key="refresh")  # 20 sec (safe for Dhan)
-
-# ---------------- DHAN API ----------------
+# ---------------- SECRETS ----------------
 try:
     dhan = dhanhq(
         st.secrets["DHAN_CLIENT_ID"],
         st.secrets["DHAN_ACCESS_TOKEN"]
     )
 except:
-    st.error("❌ Dhan API secrets missing in Streamlit Cloud")
+    st.error("❌ DHAN secrets missing")
     st.stop()
 
-# ---------------- SAFE EXPIRY LOGIC ----------------
-def get_safe_expiry():
+# ---------------- SESSION ----------------
+if "active" not in st.session_state:
+    st.session_state.active = False
+if "trade" not in st.session_state:
+    st.session_state.trade = None
+
+# ---------------- INDICES ----------------
+INDICES = {
+    "NIFTY": {"id": 13, "seg": "IDX_I"},
+    "BANKNIFTY": {"id": 25, "seg": "IDX_I"},
+    "SENSEX": {"id": 1, "seg": "IDX_I"},
+}
+
+# ---------------- EXPIRY LOGIC (CRITICAL) ----------------
+def get_fallback_expiries():
     now = datetime.now()
-    weekday = now.weekday()  # Monday=0, Thursday=3
+    weekday = now.weekday()  # Thu = 3
 
-    expiry = now + timedelta((3 - weekday) % 7)
+    base = now + timedelta((3 - weekday) % 7)
+    expiries = []
 
-    # 🚨 If today is expiry day → force next week
-    if weekday == 3:
-        expiry += timedelta(days=7)
+    if weekday == 3:  # expiry day
+        expiries.append(base + timedelta(days=7))
+        expiries.append(base + timedelta(days=14))
+    else:
+        expiries.append(base)
+        expiries.append(base + timedelta(days=7))
+        expiries.append(base + timedelta(days=14))
 
-    return expiry.strftime("%Y-%m-%d")
+    return [e.strftime("%Y-%m-%d") for e in expiries]
 
-# ---------------- OPTION CHAIN (CACHED) ----------------
-@st.cache_data(ttl=20)
-def get_option_chain(sec_id, seg, expiry):
-    return dhan.option_chain(
-        under_security_id=int(sec_id),
-        under_exchange_segment=seg,
-        expiry=expiry
-    )
+def fetch_option_chain_safe(sec_id, seg):
+    for exp in get_fallback_expiries():
+        try:
+            resp = dhan.option_chain(
+                under_security_id=int(sec_id),
+                under_exchange_segment=seg,
+                expiry=exp
+            )
+            if resp and resp.get("status") == "success" and resp.get("data"):
+                return resp, exp
+        except:
+            continue
+    return None, None
 
-# ---------------- UTILITIES ----------------
+# ---------------- HELPERS ----------------
 def calculate_pcr(df):
     ce = df[df["type"] == "CE"]["oi"].sum()
     pe = df[df["type"] == "PE"]["oi"].sum()
-    return round(pe / ce, 2) if ce > 0 else 1.0
+    return round(pe / ce, 2) if ce > 0 else 1
 
-def score_logic(row, pcr, side):
+def score_row(row, pcr, side):
     score = 0
-    oi_chg = row.get("oi_change", 0)
-    iv = row.get("iv", 0)
-
-    if oi_chg >= 2000:
+    if row.get("oi_change", 0) >= 2000:
         score += 40
-    elif oi_chg >= 1000:
-        score += 25
-
-    if 15 <= iv <= 30:
+    if 15 <= row.get("iv", 0) <= 22:
         score += 20
-
-    if side == "CALL" and pcr < 0.9:
-        score += 10
-    if side == "PUT" and pcr > 1.1:
-        score += 10
-
+    if (side == "CALL" and pcr < 0.9) or (side == "PUT" and pcr > 1.1):
+        score += 20
     return score
 
-def telegram_alert(title, message):
-    token = st.secrets.get("TELEGRAM_BOT_TOKEN")
-    chat_id = st.secrets.get("TELEGRAM_CHAT_ID")
-    if token and chat_id:
+def telegram_alert(msg):
+    try:
         requests.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            data={"chat_id": chat_id, "text": f"{title}\n{message}"}
+            f"https://api.telegram.org/bot{st.secrets['TELEGRAM_BOT_TOKEN']}/sendMessage",
+            data={"chat_id": st.secrets["TELEGRAM_CHAT_ID"], "text": msg}
         )
+    except:
+        pass
 
 # ---------------- UI ----------------
-st.title("🏹 Alpha PRO Monitor")
+st.title("🏹 Alpha PRO Monitor (Expiry-Safe)")
 
-indices = {
-    "NIFTY": {"id": 13, "seg": "IDX_I"},
-    "BANKNIFTY": {"id": 25, "seg": "IDX_I"},
-    "SENSEX": {"id": 1, "seg": "IDX_I"}
-}
-
-side = st.sidebar.selectbox("Select Option Side", ["CALL", "PUT"])
-opt_type = "CE" if side == "CALL" else "PE"
-expiry = get_safe_expiry()
-
-st.info(f"📅 Using Expiry: {expiry} (Expiry-day safe)")
+side = st.sidebar.selectbox("Option Side", ["CALL", "PUT"])
+otype = "CE" if side == "CALL" else "PE"
 
 cols = st.columns(3)
 
-# ---------------- SCREENER ----------------
-for i, (name, cfg) in enumerate(indices.items()):
+for i, (name, cfg) in enumerate(INDICES.items()):
     with cols[i]:
         st.subheader(name)
 
-        resp = get_option_chain(cfg["id"], cfg["seg"], expiry)
+        resp, used_expiry = fetch_option_chain_safe(cfg["id"], cfg["seg"])
 
-        if not resp or resp.get("status") != "success":
-            st.warning("Option chain unavailable")
-            continue
-
-        if not resp.get("data"):
-            st.warning("Expiry-day / Market closed – no data")
+        if not resp:
+            st.error("❌ Option chain unavailable (Dhan expiry issue)")
             continue
 
         df = pd.DataFrame(resp["data"])
-        if df.empty:
-            st.warning("No option data")
-            continue
-
-        spot = resp.get("underlyingValue", 0)
         pcr = calculate_pcr(df)
+        spot = resp.get("underlyingValue", 0)
 
         st.metric("SPOT", spot, f"PCR {pcr}")
+        st.caption(f"Using Expiry: {used_expiry}")
 
-        df_side = df[df["type"] == opt_type].copy()
-        if df_side.empty:
-            st.warning("No strikes found")
-            continue
-
-        df_side["SCORE"] = df_side.apply(
-            lambda x: score_logic(x, pcr, side), axis=1
+        side_df = df[df["type"] == otype].copy()
+        side_df["SCORE"] = side_df.apply(
+            lambda x: score_row(x, pcr, side), axis=1
         )
 
-        df_side = df_side.sort_values("SCORE", ascending=False)
-        best = df_side.iloc[0]
+        side_df = side_df.sort_values("SCORE", ascending=False)
+        best = side_df.iloc[0]
 
-        st.success(f"BEST STRIKE: {best['strike_price']} | SCORE {best['SCORE']}")
+        st.success(f"BEST: {best['strike_price']} | SCORE {best['SCORE']}")
 
         if st.button(f"TRACK {name}", key=name):
-            st.session_state.monitor_active = True
-            st.session_state.tracked_trade = {
+            st.session_state.active = True
+            st.session_state.trade = {
                 "name": name,
                 "id": cfg["id"],
+                "seg": cfg["seg"],
+                "expiry": used_expiry,
                 "strike": best["strike_price"],
-                "type": opt_type,
-                "entry": best["last_price"],
-                "expiry": expiry
+                "type": otype,
+                "entry": best["last_price"]
             }
-
-            telegram_alert(
-                f"{name} ENTRY",
-                f"{best['strike_price']} {opt_type}\nEntry: {best['last_price']}"
-            )
-            st.rerun()
+            telegram_alert(f"{name} ENTRY {best['strike_price']} {otype}")
+            st.experimental_rerun()
 
         st.dataframe(
-            df_side[["strike_price", "last_price", "oi_change", "SCORE"]].head(5),
+            side_df[["strike_price", "last_price", "oi_change", "SCORE"]].head(5),
             use_container_width=True
         )
 
 # ---------------- LIVE MONITOR ----------------
-if st.session_state.monitor_active:
+if st.session_state.active:
     st.divider()
-    t = st.session_state.tracked_trade
+    t = st.session_state.trade
 
-    st.header(f"🔴 LIVE TRACKING: {t['name']} {t['strike']} {t['type']}")
+    st.header(f"LIVE: {t['name']} {t['strike']} {t['type']}")
 
-    mon = get_option_chain(t["id"], "IDX_I", t["expiry"])
+    resp, _ = fetch_option_chain_safe(t["id"], t["seg"])
 
-    if mon and mon.get("status") == "success" and mon.get("data"):
-        mdf = pd.DataFrame(mon["data"])
-        row = mdf[
-            (mdf["strike_price"] == t["strike"]) &
-            (mdf["type"] == t["type"])
-        ]
+    if resp:
+        df = pd.DataFrame(resp["data"])
+        row = df[
+            (df["strike_price"] == t["strike"]) &
+            (df["type"] == t["type"])
+        ].iloc[0]
 
-        if not row.empty:
-            row = row.iloc[0]
-            ltp = row["last_price"]
-            pnl = round(ltp - t["entry"], 2)
+        pnl = row["last_price"] - t["entry"]
 
-            c1, c2, c3 = st.columns(3)
-            c1.metric("ENTRY", t["entry"])
-            c2.metric("LTP", ltp, f"{pnl}")
-            c3.metric("OI CHANGE", row["oi_change"])
+        c1, c2, c3 = st.columns(3)
+        c1.metric("ENTRY", t["entry"])
+        c2.metric("LTP", row["last_price"], f"{pnl:+.2f}")
+        c3.metric("OI CHG", row["oi_change"])
 
-            if st.button("EXIT TRADE"):
-                telegram_alert(
-                    f"{t['name']} EXIT",
-                    f"{t['strike']} {t['type']}\nExit: {ltp}\nPnL: {pnl}"
-                )
-                st.session_state.monitor_active = False
-                st.rerun()
+        if st.button("EXIT"):
+            telegram_alert(f"{t['name']} EXIT {row['last_price']}")
+            st.session_state.active = False
+            st.experimental_rerun()
+
+# ---------------- AUTO REFRESH ----------------
+st.info("Auto refresh every 20 seconds")
+time.sleep(20)
+st.experimental_rerun()
