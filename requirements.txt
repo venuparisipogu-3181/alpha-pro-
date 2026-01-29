@@ -3,4 +3,4 @@ pandas
 numpy
 requests
 websockets
-dhanhq==1.1.0
+dhanhq
