@@ -1,6 +1,5 @@
 streamlit
 pandas
-numpy
 requests
-websockets
 dhanhq
+streamlit-autorefresh
