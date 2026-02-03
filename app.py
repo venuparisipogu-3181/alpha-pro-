@@ -194,13 +194,16 @@ if 'side_monitor' not in st.session_state:
     st.session_state.side_monitor = "CE"
 if 'entry_price' not in st.session_state:
     st.session_state.entry_price = 68
+if 'start_time' not in st.session_state:
+    st.session_state.start_time = time.time()
 
 col1, col2, col3 = st.columns([2, 2, 1])
 with col1:
     strike_monitor = st.number_input("Strike Price", min_value=24000, max_value=26000, 
                                    value=st.session_state.strike)
 with col2:
-    side_monitor = st.selectbox("CE/PE", ["CE", "PE"], index=0 if st.session_state.side_monitor == "CE" else 1)
+    side_monitor = st.selectbox("CE/PE", ["CE", "PE"], 
+                               index=0 if st.session_state.side_monitor == "CE" else 1)
 with col3:
     if st.button("👁️ LIVE MONITOR START", key="single_start", use_container_width=True):
         st.session_state.monitor_active = True
@@ -222,7 +225,7 @@ if st.session_state.monitor_active:
     np.random.seed(current_time)  # Different seed for real-time changes
     
     # More realistic price movement
-    elapsed = time.time() - st.session_state.get('start_time', time.time())
+    elapsed = time.time() - st.session_state.start_time
     base_change = np.sin(elapsed * 0.5) * 25  # Oscillating movement
     live_ltp = max(5, entry_price + base_change + np.random.randint(-15, 25))
     
@@ -313,7 +316,7 @@ if st.session_state.tracked:
     st.dataframe(tracked_df)
 
 st.markdown("---")
-st.success("✅ **LIVE PRICE FIXED**: Auto-refresh every 5s | Realistic price movement | Proper session state")
+st.success("✅ **COMPLETE SYSTEM**: 3 Index Screener + Single Strike Monitor + Target/SL/OI Triple Exit!")
 
 with st.expander("📊 FULL EXIT RULES"):
     st.markdown("""
