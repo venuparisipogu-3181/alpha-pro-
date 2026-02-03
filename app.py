@@ -30,14 +30,27 @@ def telegram_pro_alert(title, strike, price, status, action, score, live=False):
 st.sidebar.title("🎯 PRO Triple Screener + Single Monitor")
 side = st.sidebar.selectbox("Side", ["CE", "PE"])
 
+# Initialize session state
 if 'tracked' not in st.session_state:
     st.session_state.tracked = []
+if 'monitor_active' not in st.session_state:
+    st.session_state.monitor_active = False
+if 'strike' not in st.session_state:
+    st.session_state.strike = 25050
+if 'side_monitor' not in st.session_state:
+    st.session_state.side_monitor = "CE"
+if 'entry_price' not in st.session_state:
+    st.session_state.entry_price = 68
+if 'start_time' not in st.session_state:
+    st.session_state.start_time = time.time()
 
 # 🔥 PRO SCORING SYSTEM
 def calculate_pro_score(row):
-    oi_change = int(str(row.get('OIΔ', '+0')).replace('+', '').replace(',', '').replace('-', ''))
+    oi_change_str = str(row.get('OIΔ', '+0')).replace('+', '').replace(',', '').replace('-', '')
+    oi_change = int(oi_change_str) if oi_change_str.isdigit() else 0
     delta = float(row.get('Δ', 0))
-    iv_percent = float(str(row.get('IV%', 0)).replace('%', ''))
+    iv_percent_str = str(row.get('IV%', 0)).replace('%', '')
+    iv_percent = float(iv_percent_str)
     pcr = float(row.get('PCR', 1.0))
     
     score = 0
@@ -85,14 +98,19 @@ def get_pro_index_data(index_name):
         
         iv_percent = 16 + abs(i) + np.random.randint(-2, 4)
         pcr = 1.1 + np.random.uniform(-0.3, 0.3)
-        pro_score = calculate_pro_score(pd.Series({
-            'OIΔ': f"+{oi_change}", 'Δ': delta, 'IV%': iv_percent, 'PCR': pcr
-        }))
+        pro_score = calculate_pro_score({
+            'OIΔ': f"+{oi_change}", 'Δ': delta, 'IV%': f"{iv_percent}", 'PCR': pcr
+        })
         
         data.append({
-            'Strike': strike, 'LTP': f"₹{ltp:.0f}", 'OI': f"{oi:,.0f}",
-            'Δ': f"{delta:.2f}", 'IV%': f"{iv_percent:.0f}", 'OIΔ': f"{oi_change:+}",
-            'PCR': f"{pcr:.2f}", 'PRO_SCORE': f"{pro_score}"
+            'Strike': strike, 
+            'LTP': f"₹{ltp:.0f}", 
+            'OI': f"{oi:,.0f}",
+            'Δ': f"{delta:.2f}", 
+            'IV%': f"{iv_percent:.0f}%", 
+            'OIΔ': f"{oi_change:+}",
+            'PCR': f"{pcr:.2f}", 
+            'PRO_SCORE': f"{pro_score}"
         })
     df = pd.DataFrame(data)
     return df, round(pcr, 2)
@@ -101,7 +119,7 @@ def get_best_pro_strike(df):
     df['SCORE_NUM'] = df['PRO_SCORE'].astype(float)
     return df.loc[df['SCORE_NUM'].idxmax()]
 
-# 🔥 3 INDEX SCREENER (ORIGINAL)
+# 🔥 3 INDEX SCREENER
 st.header("🔥 PRO 3 INDEX SCREENER")
 col1, col2, col3 = st.columns(3)
 
@@ -120,7 +138,7 @@ with col1:
         st.metric("Strike", n_best['Strike'])
         st.metric("LTP", n_best['LTP'])
     
-    if st.button("🚀 NIFTY TRACK", key="nifty", use_container_width=True):
+    if st.button("🚀 NIFTY TRACK", key="nifty_track", use_container_width=True):
         entry_price = float(n_best['LTP'].replace('₹', ''))
         telegram_pro_alert('NIFTY ENTRY', n_best['Strike'], entry_price, 
                           f"ENTRY {side}", "MONITOR START", n_best['PRO_SCORE'])
@@ -129,9 +147,9 @@ with col1:
             'Score': n_best['PRO_SCORE'], 'Live': '⚙️', 'Time': datetime.now().strftime('%H:%M')
         })
         st.balloons()
-        st.success("✅ NIFTY PRO ENTRY!")
+        st.success("✅ NIFTY PRO ENTRY ADDED!")
 
-    st.dataframe(nifty_df[['Strike', 'LTP', 'OIΔ', 'Δ', 'PRO_SCORE']], height=250)
+    st.dataframe(nifty_df[['Strike', 'LTP', 'OIΔ', 'Δ', 'PRO_SCORE']], height=250, use_container_width=True)
 
 # BANKNIFTY
 with col2:
@@ -148,14 +166,14 @@ with col2:
         st.metric("Strike", b_best['Strike'])
         st.metric("LTP", b_best['LTP'])
     
-    if st.button("🚀 BANKNIFTY TRACK", key="bank", use_container_width=True):
+    if st.button("🚀 BANKNIFTY TRACK", key="bank_track", use_container_width=True):
         entry_price = float(b_best['LTP'].replace('₹', ''))
         telegram_pro_alert('BANKNIFTY ENTRY', b_best['Strike'], entry_price, 
                           f"ENTRY {side}", "MONITOR START", b_best['PRO_SCORE'])
         st.balloons()
-        st.success("✅ BANKNIFTY PRO ENTRY!")
+        st.success("✅ BANKNIFTY PRO ENTRY ADDED!")
 
-    st.dataframe(bank_df[['Strike', 'LTP', 'OIΔ', 'Δ', 'PRO_SCORE']], height=250)
+    st.dataframe(bank_df[['Strike', 'LTP', 'OIΔ', 'Δ', 'PRO_SCORE']], height=250, use_container_width=True)
 
 # SENSEX
 with col3:
@@ -172,47 +190,37 @@ with col3:
         st.metric("Strike", s_best['Strike'])
         st.metric("LTP", s_best['LTP'])
     
-    if st.button("🚀 SENSEX TRACK", key="sensex", use_container_width=True):
+    if st.button("🚀 SENSEX TRACK", key="sensex_track", use_container_width=True):
         entry_price = float(s_best['LTP'].replace('₹', ''))
         telegram_pro_alert('SENSEX ENTRY', s_best['Strike'], entry_price, 
                           f"ENTRY {side}", "MONITOR START", s_best['PRO_SCORE'])
         st.balloons()
-        st.success("✅ SENSEX PRO ENTRY!")
+        st.success("✅ SENSEX PRO ENTRY ADDED!")
 
-    st.dataframe(sensex_df[['Strike', 'LTP', 'OIΔ', 'Δ', 'PRO_SCORE']], height=250)
+    st.dataframe(sensex_df[['Strike', 'LTP', 'OIΔ', 'Δ', 'PRO_SCORE']], height=250, use_container_width=True)
 
-# 🔥 FIXED SINGLE STRIKE MONITOR (MAIN CHANGES HERE)
+# 🔥 SINGLE STRIKE LIVE MONITOR
 st.markdown("---")
 st.header("🔴 SINGLE STRIKE LIVE MONITOR + FULL EXIT")
-
-# Initialize session state properly
-if 'monitor_active' not in st.session_state:
-    st.session_state.monitor_active = False
-if 'strike' not in st.session_state:
-    st.session_state.strike = 25050
-if 'side_monitor' not in st.session_state:
-    st.session_state.side_monitor = "CE"
-if 'entry_price' not in st.session_state:
-    st.session_state.entry_price = 68
-if 'start_time' not in st.session_state:
-    st.session_state.start_time = time.time()
 
 col1, col2, col3 = st.columns([2, 2, 1])
 with col1:
     strike_monitor = st.number_input("Strike Price", min_value=24000, max_value=26000, 
-                                   value=st.session_state.strike)
+                                   value=st.session_state.strike, key="strike_input")
 with col2:
     side_monitor = st.selectbox("CE/PE", ["CE", "PE"], 
-                               index=0 if st.session_state.side_monitor == "CE" else 1)
+                               index=0 if st.session_state.side_monitor == "CE" else 1,
+                               key="side_input")
 with col3:
-    if st.button("👁️ LIVE MONITOR START", key="single_start", use_container_width=True):
+    if st.button("👁️ LIVE MONITOR START", key="monitor_start", use_container_width=True):
         st.session_state.monitor_active = True
         st.session_state.strike = strike_monitor
         st.session_state.side_monitor = side_monitor
         st.session_state.start_time = time.time()
+        st.rerun()
         st.success("✅ LIVE MONITOR STARTED!")
 
-# 🔥 LIVE MONITOR SECTION - FIXED AUTO REFRESH
+# 🔥 LIVE MONITOR SECTION
 if st.session_state.monitor_active:
     strike = st.session_state.strike
     side_type = st.session_state.side_monitor
@@ -220,23 +228,22 @@ if st.session_state.monitor_active:
     
     st.header(f"🔴 LIVE: {strike} {side_type} | Entry: ₹{entry_price}")
     
-    # ✅ FIXED LIVE DATA WITH PROPER REFRESH
-    current_time = int(time.time())
-    np.random.seed(current_time)  # Different seed for real-time changes
-    
-    # More realistic price movement
+    # LIVE DATA GENERATION
     elapsed = time.time() - st.session_state.start_time
-    base_change = np.sin(elapsed * 0.5) * 25  # Oscillating movement
-    live_ltp = max(5, entry_price + base_change + np.random.randint(-15, 25))
+    np.random.seed(int(elapsed))
     
-    live_oi = 18500 + int(elapsed * 100) + np.random.randint(-2000, 3000)
-    prev_oi = live_oi - np.random.randint(500, 2500)
+    # Realistic price movement
+    base_change = np.sin(elapsed * 0.3) * 30
+    live_ltp = max(5, entry_price + base_change + np.random.randint(-20, 30))
+    
+    live_oi = 18500 + int(elapsed * 80) + np.random.randint(-3000, 5000)
+    prev_oi = live_oi - np.random.randint(-2000, 4000)
     oi_change = live_oi - prev_oi
     
     target_price = entry_price + 60
     sl_price = entry_price - 30
     
-    # MAIN METRICS - NOW UPDATES EVERY REFRESH
+    # MAIN METRICS
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: 
         st.metric("LTP", f"₹{live_ltp:.0f}", f"{live_ltp-entry_price:+.0f}")
@@ -248,10 +255,9 @@ if st.session_state.monitor_active:
         st.metric("SL", f"₹{sl_price:.0f}", "-30pts")
     with c5:
         status = "🎯 TARGET HIT" if live_ltp >= target_price else "🛑 SL HIT" if live_ltp <= sl_price else "✅ RUNNING"
-        color = "normal" if status == "✅ RUNNING" else "inverse"
-        st.metric("Status", status, "LIVE", delta_color=color)
+        st.metric("Status", status, "LIVE")
 
-    # 🔥 OI EXIT SIGNALS
+    # OI EXIT SIGNALS
     st.subheader("📊 OI + TARGET/SL EXIT RULES")
     oi_col1, oi_col2 = st.columns(2)
     
@@ -274,7 +280,7 @@ if st.session_state.monitor_active:
                    "🟢 BUILDUP" if oi_change >= 2000 else "🟡 STABLE" if oi_change >= 0 else "🔴 COLLAPSE"
         st.metric("OI Change", f"{oi_change:+,.0f}", oi_status)
 
-    # 🚨 ALL EXIT BUTTONS
+    # EXIT BUTTONS
     st.subheader("🎮 FULL EXIT CONTROLS")
     btn_col1, btn_col2, btn_col3 = st.columns(3)
     
@@ -300,30 +306,30 @@ if st.session_state.monitor_active:
                              "OI DROPS 1K+", "EMERGENCY SELL", 20)
             st.error("🚨 OI EMERGENCY EXIT!")
 
-    # ✅ STOP MONITOR BUTTON
+    # STOP MONITOR
     if st.button("⏹️ STOP MONITOR", key="stop_monitor", type="secondary", use_container_width=True):
         st.session_state.monitor_active = False
         st.rerun()
 
-    # 🔥 AUTO REFRESH EVERY 5 SECONDS
-    time.sleep(0.1)  # Small delay
+    # AUTO REFRESH
+    time.sleep(0.5)
     st.rerun()
 
 # TRACKED TRADES
 if st.session_state.tracked:
     st.subheader("📋 PRO TRACKED TRADES")
     tracked_df = pd.DataFrame(st.session_state.tracked)
-    st.dataframe(tracked_df)
+    st.dataframe(tracked_df, use_container_width=True)
 
 st.markdown("---")
-st.success("✅ **COMPLETE SYSTEM**: 3 Index Screener + Single Strike Monitor + Target/SL/OI Triple Exit!")
+st.success("✅ **COMPLETE PRO SYSTEM**: 3 Index Screener + Live Monitor + Triple Exit Rules!")
 
 with st.expander("📊 FULL EXIT RULES"):
     st.markdown("""
-    | **Condition** | **Signal** | **Action** | **Telegram** |
-    |---------------|------------|------------|--------------|
-    | LTP ≥ Target | 🎯 HIT | SELL 100% | "TARGET HIT" |
-    | LTP ≤ SL | 🛑 HIT | SELL 100% | "SL HIT" |
-    | OI -1000+ | 🔴 COLLAPSE | EMERGENCY SELL | "OI COLLAPSE" |
-    | OI +2000+ | 🟢 BUILDUP | HOLD | - |
+    | **Condition**      | **Signal**     | **Action**         | **Telegram**    |
+    |--------------------|----------------|--------------------|-----------------|
+    | LTP ≥ Target+60    | 🎯 HIT         | SELL 100%          | TARGET HIT      |
+    | LTP ≤ Entry-30     | 🛑 SL HIT      | SELL 100%          | SL HIT          |
+    | OI Change ≤ -1000  | 🔴 COLLAPSE    | EMERGENCY SELL     | OI COLLAPSE     |
+    | OI Change ≥ +2000  | 🟢 BUILDUP     | HOLD               | -               |
     """)
