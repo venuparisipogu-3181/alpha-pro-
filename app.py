@@ -10,8 +10,19 @@ st.title("🔥 PRO Strike Dashboard")
 st.markdown("**Nifty Live OI Signals | 3s Refresh | Mobile Ready**")
 
 # Live simulation data
-strikes = ["25000", "25100", "25200"]
-data = {}
+# app.py లో ఈ function add చేయండి (bottom)
+def connect_dhan():
+    try:
+        from dhanhq import DhanContext
+        dhan = DhanContext(st.secrets["DHAN_CLIENT_ID"], st.secrets["DHAN_ACCESS_TOKEN"])
+        st.success("🟢 Dhan WebSocket LIVE!")
+        return True
+    except:
+        return False
+
+if st.sidebar.checkbox("Real Dhan Data"):
+    connect_dhan()
+
 
 np.random.seed(int(time.time()))
 for strike in strikes:
