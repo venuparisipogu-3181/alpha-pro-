@@ -2,4 +2,4 @@ streamlit==1.38.0
 pandas==2.2.2
 dhanhq==2.2.0rc1
 requests==2.32.3
-streamlit-autorefresh==1.8.0
+streamlit-option-menu==0.3.12
