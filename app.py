@@ -194,7 +194,7 @@ def style_dataframe(df):
 st.title("🔥 PRO Strike Dashboard (Live OI Signals)")
 
 # ప్రతి 5 సెకన్లకు UI రిఫ్రెష్
-st_autorefresh(interval=5000, key="data_refresh")
+#st_autorefresh(interval=5000, key="data_refresh")
 
 st.divider()
 
