@@ -66,8 +66,12 @@ def get_real_dhan_tokens(symbol, strikes):
         return {}
 
 # ఫంక్షన్ కాల్ చేసి నిజమైన టోకెన్స్ తెచ్చుకోవడం
-tokens = get_real_dhan_tokens(UNDERLYING_SYMBOL, strikes_to_monitor)
-
+#tokens = get_real_dhan_tokens(UNDERLYING_SYMBOL, strikes_to_monitor)
+tokens = {
+    "25000": {"CE": 11111, "PE": 22222},
+    "25100": {"CE": 33333, "PE": 44444},
+    "25200": {"CE": 55555, "PE": 66666}
+}
 # ---------------- TELEGRAM ALERT ----------------
 def telegram_alert(title, message):
     try:
