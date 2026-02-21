@@ -4,8 +4,6 @@ import threading
 import time
 import requests
 from streamlit_autorefresh import st_autorefresh
-
-# DhanHQ లైబ్రరీ
 from dhanhq import marketfeed 
 
 # ---------------- PAGE CONFIG ----------------
@@ -18,60 +16,19 @@ st.set_page_config(
 data_lock = threading.Lock()
 live_data = {}
 
-# ఇక్కడ మీకు కావాల్సిన ఇండెక్స్ మరియు స్ట్రైక్స్ ఇవ్వండి
-UNDERLYING_SYMBOL = "NIFTY"
-strikes_to_monitor = ["25000", "25100", "25200"] 
-
-# 🔐 SECURITY FIX: డైరెక్ట్ గా కీలు రాయకుండా secrets వాడాము
 CLIENT_ID = st.secrets.get("DHAN_CLIENT_ID", "")
 ACCESS_TOKEN = st.secrets.get("DHAN_ACCESS_TOKEN", "")
 
-# ---------------- AUTO FETCH REAL TOKENS (MEMORY OPTIMIZED) ----------------
-# రోజుకు ఒక్కసారి మాత్రమే డౌన్‌లోడ్ అయ్యేలా Cache వాడుతున్నాం
-@st.cache_data(ttl=86400) 
-def get_real_dhan_tokens(symbol, strikes):
-    st.info("📥 ధన్ సర్వర్ నుండి టోకెన్స్ డౌన్‌లోడ్ అవుతున్నాయి (Memory Optimized)...")
-    csv_url = "https://images.dhan.co/api-data/api-scrip-master.csv"
-    
-    try:
-        # 🚀 MEMORY FIX: సర్వర్ క్రాష్ అవ్వకుండా కేవలం ఈ 6 కాలమ్స్ మాత్రమే తీసుకుంటున్నాం
-        required_cols = [
-            'SEM_INSTRUMENT_NAME', 'SEM_EXM_TRAD_SYMBOL', 'SEM_EXPIRY_DATE', 
-            'SEM_STRIKE_PRICE', 'SEM_OPTION_TYPE', 'SEM_SMST_SECURITY_ID'
-        ]
-        
-        df = pd.read_csv(csv_url, usecols=required_cols, low_memory=False)
-        df_opt = df[(df['SEM_INSTRUMENT_NAME'] == 'OPTIDX') & (df['SEM_EXM_TRAD_SYMBOL'].str.startswith(symbol))]
-        
-        # దగ్గరి ఎక్స్‌పైరీ (Nearest Expiry) ఫిల్టర్ చేయడం
-        df_opt['SEM_EXPIRY_DATE'] = pd.to_datetime(df_opt['SEM_EXPIRY_DATE'])
-        nearest_expiry = df_opt['SEM_EXPIRY_DATE'].min()
-        df_current_expiry = df_opt[df_opt['SEM_EXPIRY_DATE'] == nearest_expiry]
-        
-        real_tokens = {}
-        for strike in strikes:
-            strike_float = float(strike)
-            ce_row = df_current_expiry[(df_current_expiry['SEM_STRIKE_PRICE'] == strike_float) & (df_current_expiry['SEM_OPTION_TYPE'] == 'CE')]
-            pe_row = df_current_expiry[(df_current_expiry['SEM_STRIKE_PRICE'] == strike_float) & (df_current_expiry['SEM_OPTION_TYPE'] == 'PE')]
-            
-            if not ce_row.empty and not pe_row.empty:
-                ce_id = int(ce_row.iloc[0]['SEM_SMST_SECURITY_ID'])
-                pe_id = int(pe_row.iloc[0]['SEM_SMST_SECURITY_ID'])
-                real_tokens[strike] = {"CE": ce_id, "PE": pe_id}
-                
-        st.success("✅ నిజమైన టోకెన్స్ కనెక్ట్ అయ్యాయి!")
-        return real_tokens
-    except Exception as e:
-        st.error(f"❌ టోకెన్స్ తీసుకురావడంలో తప్పు జరిగింది: {e}")
-        return {}
+# 🛑 CSV డౌన్‌లోడ్ తీసేసి, మాన్యువల్ టోకెన్స్ వాడుతున్నాం
+strikes_to_monitor = ["25000", "25100", "25200"] 
 
-# ఫంక్షన్ కాల్ చేసి నిజమైన టోకెన్స్ తెచ్చుకోవడం
-#tokens = get_real_dhan_tokens(UNDERLYING_SYMBOL, strikes_to_monitor)
+# ఇక్కడ ఈ వారానికి సంబంధించిన నిజమైన టోకెన్స్ మార్చుకోండి
 tokens = {
-    "25000": {"CE": 11111, "PE": 22222},
+    "25000": {"CE": 11111, "PE": 22222}, 
     "25100": {"CE": 33333, "PE": 44444},
     "25200": {"CE": 55555, "PE": 66666}
 }
+
 # ---------------- TELEGRAM ALERT ----------------
 def telegram_alert(title, message):
     try:
@@ -80,7 +37,7 @@ def telegram_alert(title, message):
         if not token or not chat_id:
             return
         url = f"https://api.telegram.org/bot{token}/sendMessage"
-        requests.post(url, data={"chat_id": chat_id, "text": f"{title}\n\n{message}"})
+        requests.post(url, data={"chat_id": chat_id, "text": f"🚨 {title}\n\n{message}"})
     except:
         pass
 
@@ -88,7 +45,6 @@ def telegram_alert(title, message):
 def fetch_data_thread(active_tokens):
     global live_data
     
-    # ముందే స్ట్రక్చర్ సెటప్ చేయడం
     with data_lock:
         for strike in strikes_to_monitor:
             live_data[strike] = {'CE': 0, 'PE': 0, 'Diff': 0, 'Signal': 'NEUTRAL', 'Last_Alert': None}
@@ -139,14 +95,13 @@ def fetch_data_thread(active_tokens):
                                     
                                 live_data[strike]['Signal'] = current_signal
                                 
-                                # టెలిగ్రామ్ లాజిక్ - కొత్త సిగ్నల్స్ మాత్రమే
                                 last_alert = live_data[strike]['Last_Alert']
                                 
                                 if last_alert is None:
                                     live_data[strike]['Last_Alert'] = current_signal
                                 elif current_signal in ["BUY", "SELL"] and current_signal != last_alert:
                                     msg = f"Strike: {strike}\nSignal: {current_signal}\nDiff: {diff}\nCE OI: {ce_oi} | PE OI: {pe_oi}"
-                                    telegram_alert(f"🚨 {current_signal} ALERT", msg)
+                                    telegram_alert(f"{current_signal} ALERT", msg)
                                     live_data[strike]['Last_Alert'] = current_signal
                                 elif current_signal == "NEUTRAL" and last_alert != "NEUTRAL":
                                     live_data[strike]['Last_Alert'] = "NEUTRAL"
@@ -156,9 +111,9 @@ def fetch_data_thread(active_tokens):
 
     while True:
         try:
-            # ఇక్కడ క్లయింట్ ఐడీ పాస్ అవుతుంది
-            feed = marketfeed.MarketFeed(CLIENT_ID, ACCESS_TOKEN, instruments, on_connect=on_connect, on_message=on_message)
-            feed.run_forever()
+            if CLIENT_ID and ACCESS_TOKEN:
+                feed = marketfeed.MarketFeed(CLIENT_ID, ACCESS_TOKEN, instruments, on_connect=on_connect, on_message=on_message)
+                feed.run_forever()
             time.sleep(5)
         except Exception as e:
             time.sleep(5)
@@ -204,14 +159,12 @@ def style_dataframe(df):
 # ---------------- DASHBOARD DISPLAY ----------------
 st.title("🔥 PRO Strike Dashboard (Live OI Signals)")
 
-# ప్రతి 5 సెకన్లకు UI రిఫ్రెష్ (ఇప్పుడు క్రాష్ అవ్వదు కాబట్టి దీన్ని ఆన్ చేశాను)
+# ప్రతి 5 సెకన్లకు UI రిఫ్రెష్
 st_autorefresh(interval=5000, key="data_refresh")
 
 st.divider()
 
-if not tokens:
-    st.warning("⚠️ టోకెన్స్ డౌన్‌లోడ్ కాలేదు. దయచేసి ఇంటర్నెట్ కనెక్షన్ మరియు స్ట్రైక్ ప్రైస్ చెక్ చేయండి.")
-elif live_data:
+if live_data:
     with data_lock:
         df = prepare_dataframe(live_data)
         
