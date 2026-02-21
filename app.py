@@ -22,19 +22,25 @@ live_data = {}
 UNDERLYING_SYMBOL = "NIFTY"
 strikes_to_monitor = ["25000", "25100", "25200"] 
 
-# Dhan API క్రెడెన్షియల్స్ (ఇక్కడ మీవి ఇవ్వండి)
-CLIENT_ID = "YOUR_CLIENT_ID"
-ACCESS_TOKEN = "YOUR_ACCESS_TOKEN"
+# 🔐 SECURITY FIX: డైరెక్ట్ గా కీలు రాయకుండా secrets వాడాము
+CLIENT_ID = st.secrets.get("DHAN_CLIENT_ID", "")
+ACCESS_TOKEN = st.secrets.get("DHAN_ACCESS_TOKEN", "")
 
-# ---------------- AUTO FETCH REAL TOKENS ----------------
+# ---------------- AUTO FETCH REAL TOKENS (MEMORY OPTIMIZED) ----------------
 # రోజుకు ఒక్కసారి మాత్రమే డౌన్‌లోడ్ అయ్యేలా Cache వాడుతున్నాం
 @st.cache_data(ttl=86400) 
 def get_real_dhan_tokens(symbol, strikes):
-    st.info("📥 ధన్ సర్వర్ నుండి లేటెస్ట్ ఆప్షన్ టోకెన్స్ డౌన్‌లోడ్ అవుతున్నాయి...")
+    st.info("📥 ధన్ సర్వర్ నుండి టోకెన్స్ డౌన్‌లోడ్ అవుతున్నాయి (Memory Optimized)...")
     csv_url = "https://images.dhan.co/api-data/api-scrip-master.csv"
     
     try:
-        df = pd.read_csv(csv_url, low_memory=False)
+        # 🚀 MEMORY FIX: సర్వర్ క్రాష్ అవ్వకుండా కేవలం ఈ 6 కాలమ్స్ మాత్రమే తీసుకుంటున్నాం
+        required_cols = [
+            'SEM_INSTRUMENT_NAME', 'SEM_EXM_TRAD_SYMBOL', 'SEM_EXPIRY_DATE', 
+            'SEM_STRIKE_PRICE', 'SEM_OPTION_TYPE', 'SEM_SMST_SECURITY_ID'
+        ]
+        
+        df = pd.read_csv(csv_url, usecols=required_cols, low_memory=False)
         df_opt = df[(df['SEM_INSTRUMENT_NAME'] == 'OPTIDX') & (df['SEM_EXM_TRAD_SYMBOL'].str.startswith(symbol))]
         
         # దగ్గరి ఎక్స్‌పైరీ (Nearest Expiry) ఫిల్టర్ చేయడం
@@ -78,7 +84,7 @@ def telegram_alert(title, message):
 def fetch_data_thread(active_tokens):
     global live_data
     
-    # 1. ముందే స్ట్రక్చర్ సెటప్ చేయడం
+    # ముందే స్ట్రక్చర్ సెటప్ చేయడం
     with data_lock:
         for strike in strikes_to_monitor:
             live_data[strike] = {'CE': 0, 'PE': 0, 'Diff': 0, 'Signal': 'NEUTRAL', 'Last_Alert': None}
@@ -146,6 +152,7 @@ def fetch_data_thread(active_tokens):
 
     while True:
         try:
+            # ఇక్కడ క్లయింట్ ఐడీ పాస్ అవుతుంది
             feed = marketfeed.MarketFeed(CLIENT_ID, ACCESS_TOKEN, instruments, on_connect=on_connect, on_message=on_message)
             feed.run_forever()
             time.sleep(5)
@@ -193,8 +200,8 @@ def style_dataframe(df):
 # ---------------- DASHBOARD DISPLAY ----------------
 st.title("🔥 PRO Strike Dashboard (Live OI Signals)")
 
-# ప్రతి 5 సెకన్లకు UI రిఫ్రెష్
-#st_autorefresh(interval=5000, key="data_refresh")
+# ప్రతి 5 సెకన్లకు UI రిఫ్రెష్ (ఇప్పుడు క్రాష్ అవ్వదు కాబట్టి దీన్ని ఆన్ చేశాను)
+st_autorefresh(interval=5000, key="data_refresh")
 
 st.divider()
 
